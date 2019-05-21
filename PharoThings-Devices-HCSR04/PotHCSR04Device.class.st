@@ -1,26 +1,64 @@
+"
+I'm a class to control the ultrasonic HCSR-04 sensors.
+You can use many ultrasonic sensors at the same time. Just change the PINs id. 
+
+To use:
+(inspector)
+ultrasonic := board installDevice: PotHCSR04Device new.
+
+(playground. change the board model  to your board)
+ultrasonic := (RpiBoard3B current) installDevice: PotHCSR04Device new.
+
+You can name the object using
+name: 'Left sensor'
+
+To read the distance use one of the method below. 
+
+readDistance. ""It will return a number""
+printDistance. ""It will return a string""
+
+I'm using the GPIO0 to triggerPin and GPIO21 to echoPin as default configuration.
+If you want to choose your own PIN position, you can set using the PIN Id (BCM number):
+
+triggerPin: 27 echoPin: 17.
+
+Some of my sensors brothers uses only 1 GPIO to send and read the ultrasonic pulse. 
+You can set it using the method:
+
+signalPin: 22.
+
+Sometimes I can freeze. You can reboot me using
+
+rebootSensor.
+"
 Class {
 	#name : #PotHCSR04Device,
 	#superclass : #PotDevice,
 	#instVars : [
-		'pulseStart',
-		'pulseEnd',
-		'pulseDuration',
 		'triggerPin',
-		'echoPin'
+		'echoPin',
+		'triggerPinNumber',
+		'echoPinNumber'
 	],
 	#category : #'PharoThings-Devices-HCSR04'
 }
 
 { #category : #initialization }
 PotHCSR04Device >> configureForRpiBoard3B: aBoard [
-	triggerPin := aBoard pinWithId: 21.	"trigger pin send the ultrasonic pulse"
-	echoPin := aBoard pinWithId: 0	"echo pin become on (after read the return pulse) by the same time spent to pulse go and back"
+	"trigger pin send the ultrasonic pulse. 
+	echoPin become on (after receive the return pulse) by the same time spent to pulse go and back
+	If the trigger pin is not setted, it use the default pins GPIO0 and GPIO21 "
+	
+	triggerPin ifNil: [triggerPinNumber := 5. echoPinNumber := 17].
+	triggerPin := aBoard pinWithId: triggerPinNumber.	
+	
+	"If the echo pin is false, it use the trigger pin as echo pin. Some ultrasonic sensor uses only 1 gpio to both"
+	echoPinNumber ifNil: [echoPin := triggerPin] ifNotNil: [echoPin := aBoard pinWithId: echoPinNumber]
 ]
 
 { #category : #initialization }
 PotHCSR04Device >> connect [
-	self isConfigured ifFalse: [ board configureComplexDevice: self ].
-	self rebootPinsState
+	self isConfigured ifFalse: [ board configureComplexDevice: self ]
 ]
 
 { #category : #initialization }
@@ -36,23 +74,25 @@ PotHCSR04Device >> isConnected [
 { #category : #commands }
 PotHCSR04Device >> printDistance [
 	^ self readDistance printShowingDecimalPlaces: 1
-
 ]
 
-{ #category : #controlling }
+{ #category : #commands }
 PotHCSR04Device >> readDistance [
-	^ (self readDurationPinEnable * 34300 / 2 / 1000000) asFloat round: 1
+	self sendPulse.
+	^ (self readPinStateDuration * 34300 / 2 / 1000000) asFloat round: 1
 ]
 
 { #category : #controlling }
-PotHCSR04Device >> readDurationPinEnable [
+PotHCSR04Device >> readPinStateDuration [
+	| pulseStart pulseEnd |
+	echoPin beDigitalInput; enablePullDownResister.
 	[ echoPin value == 0 ] whileTrue: [ pulseStart := Time primUTCMicrosecondsClock ].
 	[ echoPin value == 1 ] whileTrue: [ pulseEnd := Time primUTCMicrosecondsClock ].
 	^ pulseEnd - pulseStart
 ]
 
-{ #category : #controlling }
-PotHCSR04Device >> rebootPinsState [
+{ #category : #commands }
+PotHCSR04Device >> rebootSensor [
 	"reset the pins when the sensor freeze"
 	echoPin beDigitalOutput; value: 1.
 	1 milliSeconds wait.
@@ -62,7 +102,22 @@ PotHCSR04Device >> rebootPinsState [
 
 { #category : #controlling }
 PotHCSR04Device >> sendPulse [
-	triggerPin value: 1.
+	triggerPin beDigitalOutput. 
+	triggerPin value: 0; value: 1.
 	1 milliSeconds wait.
 	triggerPin value: 0
+]
+
+{ #category : #settings }
+PotHCSR04Device >> signalPin: aSignalPinNumber [
+	self triggerPin: aSignalPinNumber echoPin: nil
+]
+
+{ #category : #settings }
+PotHCSR04Device >> triggerPin: aTriggerPinNumber echoPin: aEchoPinNumber [
+	
+	triggerPinNumber := aTriggerPinNumber.
+	echoPinNumber := aEchoPinNumber.
+	
+	board configureComplexDevice: self
 ]
